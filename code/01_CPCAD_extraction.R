@@ -88,12 +88,12 @@ write_sf(cpcad_marine_grouped,dsn="data/cpcad/cpcad_areas_marine_nozones.shp")
 
 #Canadian Bioregions and EEZ ---------
 
-can_bioregions <- data_bioregion(bioregion="All")
+can_bioregions <- data_bioregion(bioregion="All")%>%
+                  st_make_valid()
 
 can_eez <- can_bioregions%>%
-           st_make_valid()%>%
            st_union()
 
-st_write(can_bioregions,dsn="data/shapefiles/canadian_bioregions.shp")
-st_write(can_eez,dsn="data/shapefiles/can_eez.shp")
+st_write(can_bioregions,dsn="data/shapefiles/canadian_bioregions.shp",delete_layer = TRUE)
+st_write(can_eez,dsn="data/shapefiles/can_eez.shp",delete_layer = TRUE)
 
