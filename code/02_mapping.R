@@ -31,7 +31,12 @@ bioregion <- get_spatial_layer("https://egisp.dfo-mpo.gc.ca/arcgis/rest/services
 
 bioregion_ord <- c("Southern Shelf","Strait of Georgia","Northern Shelf","Offshore Pacific",
                    "Western Arctic","Arctic Archipelago","Arctic Basin","Eastern Arctic","Hudson Bay Complex",
-                   "Newfoundland-Labrador Shelves","Gulf of Saint Lawrence","Scotian Shelf")         
+                   "Newfoundland-Labrador Shelves","Gulf of Saint Lawrence","Scotian Shelf")   
+
+bioregion_abbrev <- read.csv("data/region_abbreviations.csv")%>%
+                    mutate(region = factor(region,levels=bioregion_ord))%>%
+                    arrange(region)%>%
+                    mutate(region=as.character(region))
 
 #load basema of Canada
 basemap <- ne_states(country = "Canada",returnclass = "sf")%>%
@@ -272,8 +277,7 @@ depth_zone_plot <- bioregion_df %>%
     axis.text.y = element_text(size = 8),
     strip.background = element_rect(fill="white"),
     strip.text = element_text(face = "bold")
-  )+
-  scale_x_log10()
+  )
 
 ggsave("output/depth_zone_biorgion_plot.png",depth_zone_plot)
 
@@ -298,14 +302,15 @@ bioregion_depth_summary <- bioregion_extract %>%
     min_depth = min(depth, na.rm = TRUE),
     max_depth = max(depth, na.rm = TRUE),
     .groups = "drop"
-  ) %>%
-  # Filter bins with sufficient data points
-  #filter(n_points >= 5) %>%  # Adjust this threshold as needed
+  )%>%
+  left_join(.,bioregion_abbrev) %>%
+  #filter(n_points >= 5) %>%  # Filter bins with sufficient data points adjust this threshold as needed
   mutate(
     # Calculate confidence intervals
     ci_lower = mean_vuln - 1.96 * se_vuln,
     ci_upper = mean_vuln + 1.96 * se_vuln,
     region = factor(region,levels=bioregion_ord),
+    ab_region =factor(ab_region,levels=bioregion_abbrev$ab_region),
     depth_cat = case_when(depth_bin >= 200 ~ "Deep",
                           depth_bin >= 50 & depth_bin < 200 ~ "Shelf", #or epipelagic
                           TRUE ~ "Coastal"),
@@ -324,12 +329,14 @@ bioregion_depth_summary <- bioregion_extract %>%
 #   ungroup()
 
 bioregion_raw <- bioregion_extract %>%
-  data.frame() %>%
-  dplyr::select(-geometry) %>%
-  filter(!is.na(vuln), !is.na(bathy)) %>%
-  mutate(depth = abs(bathy),
-         region = factor(region,levels=bioregion_ord),
-         scenario = factor(rcp,levels=c("2.6","8.5")))
+                data.frame() %>%
+                dplyr::select(-geometry) %>%
+                filter(!is.na(vuln), !is.na(bathy)) %>%
+                left_join(.,bioregion_abbrev) %>%
+                mutate(depth = abs(bathy),
+                       region = factor(region,levels=bioregion_ord),
+                       ab_region =factor(ab_region,levels=bioregion_abbrev$ab_region),
+                       scenario = factor(rcp,levels=c("2.6","8.5")))
 
 depth_bin_target <- c(5,15,25,35,45,65,95,125,155,185,seq(215,5095,10)[seq(5, length(seq(215,5095,10)), 5)])
 
@@ -355,7 +362,7 @@ plot_vuln_depth_faceted_26 <- ggplot() +
               color = "blue", fill = "lightblue", alpha = 0.3) +
   
   #coord_cartesian(xlim = range(bioregion_raw$depth, na.rm = TRUE)) +
-  facet_wrap(~ region, scales = "free") +
+  facet_wrap(~ ab_region, scales = "free") +
   labs(title="RCP 2.6",
        #title = "Vulnerability vs Depth Relationship by Ocean Basin",
        #subtitle = "Red points: 10m binned means ± 95% CI, Blue line: LOESS smooth, Gray points: raw data",
@@ -392,7 +399,7 @@ plot_vuln_depth_faceted_85 <- ggplot() +
               color = "blue", fill = "lightblue", alpha = 0.3) +
   
   #coord_cartesian(xlim = range(bioregion_raw$depth, na.rm = TRUE)) +
-  facet_wrap(~ region, scales = "free") +
+  facet_wrap(~ ab_region, scales = "free") +
   labs(title="RCP 8.5",
        #title = "Vulnerability vs Depth Relationship by Ocean Basin",
        #subtitle = "Red points: 10m binned means ± 95% CI, Blue line: LOESS smooth, Gray points: raw data",
@@ -422,7 +429,7 @@ depth_vul_biorigon <- ggplot() +
               aes(x = depth, y = vuln,col=scenario,fill=scenario,group=scenario),
               method = "loess", span = 0.5, alpha = 0.3,show.legend = FALSE) +
   coord_cartesian(xlim = range(bioregion_raw$depth, na.rm = TRUE)) +
-  facet_wrap(~ region, scales = "free") +
+  facet_wrap(~ ab_region, scales = "free") +
   labs(
     #title = "Vulnerability vs Depth Relationship by Ocean Basin",
     #subtitle = "Red points: 10m binned means ± 95% CI, Blue line: LOESS smooth, Gray points: raw data",
