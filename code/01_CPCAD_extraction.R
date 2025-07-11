@@ -272,10 +272,9 @@ cpcad_marine2 <- cpcad_marine2%>%
               dplyr::select(ocean,bioregion))
 
 ##Add in missing areas from the Pacific
-
 cpcad_marine_complete <- cpcad_marine2%>%
                          dplyr::select(NAME_E,type,ocean,bioregion,area)%>%
-                         rbind(.,banks_refuge,xaanakaahlii,gaw_kaahlii)
+                         rbind(.,banks_refuge,xaanakaahlii,gaw_kaahlii)%>%
+                         st_as_sf()
 
-
-st_write(cpcad_marine,dsn="data/cpcad/cpcad_complete.shp",append=TRUE)
+st_write(cpcad_marine_complete,dsn="data/cpcad_complete.shp",append=TRUE)
