@@ -277,4 +277,4 @@ cpcad_marine_complete <- cpcad_marine2%>%
                          rbind(.,banks_refuge,xaanakaahlii,gaw_kaahlii)%>%
                          st_as_sf()
 
-st_write(cpcad_marine_complete,dsn="data/cpcad_complete.shp",append=TRUE)
+st_write(cpcad_marine_complete,dsn="data/cpcad/cpcad_complete.shp",append=TRUE)
