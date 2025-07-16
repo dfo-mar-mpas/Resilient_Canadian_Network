@@ -81,20 +81,14 @@ basemap <- ne_states(country = "Canada",returnclass = "sf")%>%
 #                   st_union()%>%
 #                   st_transform(CanProj)
 
-eez <- read_sf("Data/Shapefiles/Canada_EEZ.shp")%>%
+eez <- read_sf("Data/Shapefiles/can_EEZ.shp")%>%
        st_transform(CanProj)
 
-bioregions <- read_sf("Data/Shapefiles/DFO_Marine_Bioregions_Clipped_1M_CAEAC_2012_05_31.shp")%>%
+bioregions <- read_sf("Data/Shapefiles/canadian_bioregions.shp")%>%
               st_transform(latlong)%>%
-              filter(!Legend %in% c("Saint-Pierre et Miquelon / Saint-Pierre et Miquelon",
-                                    "13. Great Lakes / Grands Lacs"))%>%
-              mutate(name=sub("/.*", "", Legend),
-                     name=gsub('[[:digit:]]+', '', name),
-                     name=gsub("\\.","",name),
-                     name=trimws(name),
-                     name=factor(name,levels=c("Offshore Pacific","Northern Shelf","Southern Shelf","Strait of Georgia",
-                                               "Western Arctic","Arctic Archipelago","Arctic Basin","Hudson Bay Complex","Eastern Arctic",
-                                               "Newfoundland-Labrador Shelves","Gulf of Saint Lawrence","Scotian Shelf")))
+              filter(!NAME_E %in% c("Saint-Pierre et Miquelon",
+                                    "Great Lakes"))%>%
+              rename(region=NAME_E)
 
 cca_bioregion <- CCA_simple%>%
                  st_intersection(bioregions%>%rename(region=name)%>%st_transform(CanProj))
