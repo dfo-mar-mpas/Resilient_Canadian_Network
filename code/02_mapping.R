@@ -9,6 +9,8 @@ library(viridis)
 library(ggrepel)
 library(MarConsNetData) # https://github.com/dfo-mar-mpas/MarConsNetData/
 library(arcpullr)
+library(ggspatial)
+library(cowplot)
 
 #map projections
 latlong <- "+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
@@ -17,26 +19,70 @@ CanProj <- "+proj=lcc +lat_1=49 +lat_2=77 +lat_0=63.390675 +lon_0=-91.8666666666
 #load functions
 source("code/00_functions.R")
 
-#load the bioregion extraction (from Boyce et al. 2022- Canada) processed by keen et al
+#load the bioregion and network extractions (from Boyce et al. 2022- Canada) processed by keen et al
 load("data/bioregion_extract.RData")
+load("data/can_network_extract.RData")
 
-#Load shapefiles
-cpcad_marine <- read_sf("data/cpcad/cpcad_areas_marine.shp")%>%
-                st_transform(CanProj)
+#load the GEBCO extraction of bathymetry values associated with the MPA gridcells
+load("data/bathy_vals.RData")
 
-canada_eez <- read_sf("data/shapefiles/Canada_EEZ.shp")%>%
-              st_transform(CanProj)
-
-bioregion <- get_spatial_layer("https://egisp.dfo-mpo.gc.ca/arcgis/rest/services/open_data_donnees_ouvertes/federal_marine_bioregions_bioregions_marines_federales/MapServer/0")
-
+#Load in Canadian Bioregions and fix the Scotian SHelf to make it match up for plotting
 bioregion_ord <- c("Southern Shelf","Strait of Georgia","Northern Shelf","Offshore Pacific",
                    "Western Arctic","Arctic Archipelago","Arctic Basin","Eastern Arctic","Hudson Bay Complex",
                    "Newfoundland-Labrador Shelves","Gulf of Saint Lawrence","Scotian Shelf")   
 
 bioregion_abbrev <- read.csv("data/region_abbreviations.csv")%>%
-                    mutate(region = factor(region,levels=bioregion_ord))%>%
-                    arrange(region)%>%
-                    mutate(region=as.character(region))
+  mutate(region = factor(region,levels=bioregion_ord))%>%
+  arrange(region)%>%
+  mutate(region=as.character(region))
+
+#load bioregions                  
+bioregion_df <- read_sf("data/shapefiles/canadian_planning_regions.shp")%>% #these are the output from 01_cpcad_extraction
+                st_transform(CanProj)%>%
+              
+                  mutate(region=factor(region,levels=bioregion_ord))%>%
+          
+
+ocean_df <- bioregion_df%>%
+          st_make_valid()%>%
+          group_by(ocean)%>%
+          summarise(geometry = st_union(geometry))%>%
+          st_make_valid()%>%
+          st_transform(CanProj)
+
+#load the cpcad_marine datafile from the 01_CPCAD_extraction code
+cpcad_marine <- read_sf("data/cpcad/cpcad_complete.shp")%>%
+                st_transform(CanProj)%>%
+                st_make_valid()
+
+#colour palatte for plotting
+colour_pal_types <- c("MPA" = "#252A6B", #ocean'ee themed colours
+                      "OECM" = "#2AA2BD",
+                      "Marine Refuge" = "#84E7DA",
+                      "Gap" = "white")
+
+colour_pal_bioregion <- c("Newfoundland-Labrador Shelves" = "#BCE4DF",
+                          "Gulf of Saint Lawrence" = "#51AFA5",
+                          "Scotian Shelf" = "#005E6B",
+                          
+                          "Western Arctic"  = "#E3F6FC",
+                          "Arctic Archipelago" = "#49E8F2",
+                          "Arctic Basin" = "#0087D1",
+                          "Eastern Arctic" = "#27ADF5",
+                          "Hudson Bay Complex" = "#2B3686",
+                          
+                          
+                          "Southern Shelf" = "#F3DE02",
+                          "Strait of Georgia" = "#F78E12",
+                          "Northern Shelf"= "#F7680C",
+                          "Offshore Pacific"= "#C70007")
+
+mar_network <- data_draft_areas()%>%st_transform(CanProj)
+
+#Canadian eex --- 
+canada_eez <- read_sf("data/shapefiles/can_EEZ.shp")%>%
+              st_transform(CanProj)
+
 
 #load basema of Canada
 basemap <- ne_states(country = "Canada",returnclass = "sf")%>%
@@ -69,8 +115,579 @@ basemap <- ne_states(country = "Canada",returnclass = "sf")%>%
                     mutate(country="Iceland"))%>%
             st_transform(CanProj)
 
+plot_region <- canada_eez%>%st_bbox()
+
 canada <- basemap%>%
           filter(country=="Canada")
+
+##analysis of CMIP downscaling - McKee et al. 
+
+cmip_df <- read.csv("data/McKee_et_al_data.csv")%>%
+           mutate(site=ifelse(site == "Gully MPA","The Gully",site))%>%
+           filter(!variable %in% c("MLD","Bspeed"), #ffocus on salinity and temp
+                  rcp %in% c(4.5,8.5))%>% #intermediate carbon scenario and 8.5 (business as usual)
+            pivot_longer(
+              cols = starts_with(c("p1_", "p2_", "p3_", "p4_")),
+              names_to = c("period", ".value"),
+              names_pattern = "p(.)_(mean|var)"
+            ) %>%
+            mutate(
+              rcp=paste("RCP",rcp,sep=" "),
+              rcp=factor(rcp,levels=c("RCP 4.5","RCP 8.5")),
+              period = paste0("Period ", period),
+              period = factor(period, levels = paste0("Period ",1:4)),
+              time_period = case_when(period == "Period 1" ~ "2020-2039",
+                                      period == "Period 2" ~ "2040-2059",
+                                      period == "Period 3" ~ "2060-2079",
+                                      period == "Period 4" ~ "2080-2099"),
+              #time_period = factor(time_period, levels=c("2020-2039","2040-2059","2060-2079","2080-2099")),
+              variable = factor(variable, levels=c("SST","BT","SSS","BS"))
+            )%>%
+            filter(time_period %in% c("2040-2059","2080-2099"))
+
+
+temp_data <- cmip_df %>%
+  filter(variable %in% c("SST", "BT")) %>%
+  group_by(site) %>%
+  # Calculate maximum SST change for ordering
+  mutate(max_sst_change = max(abs(mean[variable == "SST"]))) %>%
+  ungroup() %>%
+  mutate(site = factor(site, 
+                  levels = rev(names(sort(tapply(.$max_sst_change, .$site, max), decreasing = FALSE)))),
+         time_period=factor(time_period,levels=rev(c("2040-2059","2080-2099"))),
+         rcp = factor(rcp,levels=c("RCP 8.5","RCP 4.5")))%>%
+  data.frame()
+
+temp_plot_bars <- ggplot(temp_data%>%filter(variable=="SST"),
+       aes(x=time_period,y=mean,fill=mean,group=interaction(time_period,rcp)))+
+  geom_bar(stat = "identity", 
+           col="black",
+           position = position_dodge(width = 0.8),
+           width = 0.8)+
+  geom_errorbar(
+    aes(ymin = mean - sqrt(var), 
+        ymax = mean + sqrt(var)),
+    position = position_dodge(width = 0.8),
+    width = 0.25
+  ) +
+  facet_grid(site~., 
+             space = "free_y",
+             scales = "free_y")+
+  labs(
+    x = "Time period",
+    y = expression(paste("Mean ", Delta, "T (°C)"," ± sd"))
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill="white"),
+    #axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none",
+    panel.spacing = unit(0.1, "lines")
+  ) +
+  coord_flip()+
+  scale_fill_gradient(
+    low = "#FED976",   # Light Orange
+    high = "#800026"   # Very Dark Red
+  ) +
+  scale_y_continuous(expand = c(0, 0, 0.1, 0))  # Added expansion to top of y-axis
+
+ggsave("output/temp_plot_atlantic_bars.png",temp_plot_bars,height=8,width=6,units="in",dpi=300)
+
+#Coverage analysis  ------
+
+ocean_area <- ocean_df%>%
+              st_transform(4326)%>% #this is the projection used in CPCAD calculations
+              group_by(ocean)%>%
+              summarise(ocean_area=as.numeric(st_area(geometry))/1000/1000)%>%
+              data.frame()%>%
+              dplyr::select(ocean,ocean_area)
+
+bioregion_area <- bioregion_df%>%
+                  st_transform(4326)%>%#this is the projection used in CPCAD calculations
+                  mutate(bioregion_area=as.numeric(st_area(geometry))/1000/1000)%>%
+                  data.frame()%>%
+                  rename(bioregion=region)%>%
+                  dplyr::select(bioregion,ocean,bioregion_area)
+
+cpcad_marine_df <- cpcad_marine%>%
+                   data.frame()%>%
+                   dplyr::select(-geometry)%>%
+                   left_join(.,ocean_area)%>%
+                   left_join(.,bioregion_area)
+  
+#area calcuations
+
+area_df_bioregion <- cpcad_marine_df%>%
+                      group_by(bioregion,type)%>%
+                      summarise(total_count = n(),
+                                total_area = sum(area),
+                                prop_area = total_area/unique(bioregion_area))%>%
+                      ungroup()%>%
+                      left_join(.,bioregion_area)%>%
+                      mutate(type=factor(type,levels=c("MPA","Marine Refuge","OECM")),
+                             bioregion=factor(bioregion,levels=bioregion_ord),
+                             ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")))%>%
+                             mutate(target_gap = NA)
+
+
+bioregion_gap <- area_df_bioregion%>%
+         group_by(bioregion)%>%
+         summarise(
+         prop_area = sum(prop_area),
+         total_count = sum(total_count),
+         total_area = sum(total_area),
+         bioregion_area = unique(bioregion_area),
+         target_area = bioregion_area * 0.3,
+         target_gap = round(target_area - total_area,1),
+         target_gap = ifelse(target_gap<0,0,target_gap),
+         prop_area = 0.3 - prop_area,
+         prop_area = ifelse(prop_area<0,NA,prop_area)
+         )%>%
+         ungroup()%>%
+         mutate(type="Gap")%>%
+         left_join(.,area_df_bioregion%>%dplyr::select(bioregion,ocean)%>%distinct(bioregion,.keep_all=T))%>%
+         dplyr::select(names(area_df_bioregion))%>%
+         data.frame()
+         
+bioregion_gap%>%filter(target_gap>0)%>%pull(target_gap)%>%median()
+
+area_df_bioregion2 <- area_df_bioregion%>%
+                      rbind(.,bioregion_gap)%>%
+                      mutate(type=factor(type,levels=c("Gap","MPA","Marine Refuge","OECM")),
+                             bioregion=factor(bioregion,levels=bioregion_ord),
+                             ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")))%>%
+                      arrange(ocean,bioregion,type)%>%
+                      data.frame()
+         
+
+area_df_ocean <- cpcad_marine_df%>%
+  group_by(ocean,type)%>%
+  summarise(total_count = n(),
+            total_area = sum(area),
+            prop_area = total_area/unique(ocean_area))%>%
+  ungroup()%>%
+  left_join(.,ocean_area)%>%
+  mutate(type=factor(type,levels=c("MPA","Marine Refuge","OECM")),
+         ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")))%>%
+  arrange(ocean)%>%
+  mutate(target_gap = NA,
+         bioregion_area = ocean_area)
+
+#add in the ocean totals -
+ocean_gap <- area_df_ocean%>%
+  group_by(ocean)%>%
+  summarise(
+    prop_area = sum(prop_area),
+    total_count = sum(total_count),
+    total_area = sum(total_area),
+    ocean_area = unique(ocean_area),
+    target_area = ocean_area * 0.3,
+    target_gap = round(target_area - total_area,1),
+    target_gap = ifelse(target_gap<0,0,target_gap),
+    prop_area = 0.3 - prop_area,
+    prop_area = ifelse(prop_area<0,NA,prop_area)
+  )%>%
+  ungroup()%>%
+  mutate(type="Gap",
+         bioregion_area=ocean_area)%>%
+  data.frame()%>%
+  dplyr::select(names(area_df_ocean))
+
+
+area_df_ocean2 <- area_df_ocean%>%
+  rbind(.,ocean_gap)%>%
+  mutate(type=factor(type,levels=c("Gap","MPA","Marine Refuge","OECM")),
+         ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")),
+         bioregion=paste(ocean,"Region",sep=" "))%>%
+  arrange(ocean,type)%>%
+  data.frame()%>%
+  dplyr::select(names(area_df_bioregion2))
+
+
+#combine
+area_df_bioregion3 <- area_df_bioregion2%>%
+  mutate(bioregion=gsub("Newfoundland-Labrador","NL",bioregion),
+         bioregion=factor(bioregion,levels=gsub("Newfoundland-Labrador","NL",bioregion_ord)))%>%
+                      rbind(.,area_df_ocean2)
+
+##Area Coverage plots -------
+
+coverage_plot <- ggplot(area_df_bioregion3, aes(x = bioregion, y = prop_area, fill = type)) +
+  
+  # Existing stacked bar plot for conservation types
+  geom_bar(
+    data = area_df_bioregion3,
+    aes(fill=type),
+    stat = "identity", 
+    position = "stack", 
+    width = 0.7, 
+    col = "black"
+  ) +
+  
+  geom_bar(data=data.frame(ocean=c("Atlantic","Arctic","Pacific"),
+                           bioregion=c("Atlantic Region","Arctic Region","Pacific Region"))%>%
+                mutate(ocean = factor(ocean,levels=c("Pacific","Arctic","Atlantic")),
+                       prop_area = c(0.3,0.3,area_df_ocean%>%filter(ocean=="Pacific")%>%pull(prop_area)%>%sum())),
+           aes(x=bioregion,y=prop_area),
+           fill=NA,
+           col="black",
+           linewidth=1.1,
+           stat = "identity",
+           position = "stack",
+           width = 0.7) +
+                
+  
+  # Text labels for conservation types
+  geom_text(
+    data = area_df_bioregion3 %>% filter(type != "Gap", prop_area > 0.01),
+    aes(label = sprintf("%.1f%%", prop_area * 100)),
+    position = position_stack(vjust = 0.5),
+    size = 3,
+    col = "grey50",
+    fontface = "bold"
+  ) +
+  
+  # 30% target line
+  geom_hline(yintercept = 0.3, linewidth=1,col="grey60",linetype=2) +
+  
+  # Gap labels
+  geom_text(
+    data = area_df_bioregion3 %>% 
+      group_by(bioregion) %>%
+      mutate(
+        non_gap_total = sum(prop_area[type != "Gap"]),
+        label_position = non_gap_total + prop_area[type == "Gap"]/2
+      ) %>%
+      filter(type == "Gap" & prop_area > 0),
+    aes(y = label_position, label = sprintf("%skm²", format(target_gap, big.mark = ","))),
+    size = 2.5,
+    col = "black",
+    fontface = "bold",
+    angle = 90,
+    hjust = 0.5
+  ) +
+  
+ 
+  
+  # Y-axis settings
+  scale_y_continuous(
+    labels = scales::percent_format(), 
+    expand = expansion(mult = c(0, 0.2))  # Extra space for gap labels
+  ) +
+  
+  # Facet by ocean
+  facet_wrap(~ocean, ncol = 3, scales = "free_x") +
+  
+  # Color palette
+  scale_fill_manual(values = colour_pal_types) +
+  
+  # Labels
+  labs(
+    x = "",
+    y = "% bioregion area coverage",
+    fill = ""
+  ) +
+  
+  # Theme
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "white"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "inside",
+    legend.position.inside = c(0.93,0.93),
+    legend.background = element_blank()
+  )
+
+ggsave("output/Canada_MCN_Coverage_2025.png",coverage_plot,height=8,width = 10)
+
+
+#make plots
+area_plot_ocean <- ggplot(area_df_ocean, aes(x = ocean, y = prop_area, fill = type)) +
+              geom_bar(stat = "identity", position = "stack", width = 0.7, col = "black") +
+              geom_text(
+                data = area_df_ocean %>% filter(prop_area > 0.01, type != "MPA"),
+                aes(label = sprintf("%.1f%%", prop_area * 100)),
+                position = position_stack(vjust = 0.5),
+                size = 4,
+                col = "grey30",
+                fontface = "bold"
+              ) +
+              geom_text(
+                data = area_df_ocean %>% filter(prop_area > 0.01, type == "MPA"),
+                aes(label = sprintf("%.1f%%", prop_area * 100)),
+                position = position_stack(vjust = 1.1),  # Adjust this value for MPA
+                size = 4,
+                col = "grey90",
+                fontface = "bold"
+              ) +
+              geom_hline(yintercept = 0.3, linetype = 2) +
+              scale_y_continuous(
+                labels = scales::percent_format(), 
+                expand = expansion(mult = c(0, 0.1))  # Add some extra space at the top
+              ) +
+              scale_fill_manual(values = colour_pal_types) +
+              labs(
+                x = "",
+                y = "% ocean area coverage",
+                fill = ""
+              ) +
+              theme_bw() +
+              theme(
+                panel.grid.major.x = element_blank(),
+                panel.grid.minor.y = element_blank(),
+                axis.text.x = element_text(angle = 45, hjust = 1)
+              )
+
+area_plot_bioregion <- ggplot(area_df_bioregion, aes(x = bioregion, y = prop_area, fill = type)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7, col = "black") +
+  geom_text(
+    data = area_df_bioregion %>% filter(prop_area > 0.01),
+    aes(label = sprintf("%.1f%%", prop_area * 100)),
+    position = position_stack(vjust = 0.5),
+    size = 3,  # Reduced text size
+    col = "grey50",  # Consistent grey color
+    fontface = "bold"
+  ) +
+  geom_hline(yintercept = 0.3, linetype = 2) +
+  scale_y_continuous(
+    labels = scales::percent_format(), 
+    expand = expansion(mult = c(0, 0.1))  # Add some extra space at the top
+  ) +
+  facet_wrap(~ocean, ncol=3, scales="free_x") +
+  scale_fill_manual(values = colour_pal_types) +
+  labs(
+    x = "",
+    y = "% bioregion area coverage",
+    fill = ""
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill="white"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+## Canada Starburst -------
+canada_area <- sum(ocean_area$ocean_area)
+canada_target <- canada_area*0.3
+
+bioregion_area%>%
+  group_by(ocean)%>%
+  summarise(total=sum(bioregion_area))%>%
+  ungroup()
+
+bioregion_coverage <- cpcad_marine%>%
+  data.frame()%>%
+  group_by(bioregion)%>%
+  summarise(area=sum(area))%>%
+  ungroup()%>%
+  data.frame()%>%
+  left_join(bioregion_area)%>%
+  mutate(target=bioregion_area*0.3,
+         gap=target-area,
+         gap=ifelse(gap<0,0,abs(gap)),
+         bioregion = factor(bioregion,levels=bioregion_ord))%>%
+  arrange(bioregion)
+
+ocean_coverage <- bioregion_coverage%>%
+  group_by(ocean)%>%
+  summarise(coverage=sum(area),
+            target=sum(target),
+            gap = target - coverage)%>%
+  ungroup()%>%
+  mutate(ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")))%>%
+  arrange(ocean)
+
+
+#example starburst code from https://plotly.com/r/sunburst-charts/ ------------
+plot_ly(
+  labels = c("Eve", "Cain", "Seth", "Enos", "Noam", "Abel", "Awan", "Enoch", "Azura","Ryan"),
+  parents = c("", "Eve", "Eve", "Seth", "Seth", "Eve", "Eve", "Awan", "Eve","Enos"),
+  values = c(10, 14, 12, 10, 2, 6, 6, 4, 4,2),
+  type = 'sunburst'
+)
+
+
+plot_ly(
+  labels=c("National Target",
+           "2025 Coverage","2025 Gap",
+           "Pacific","Arctic","Atlantic",
+           as.character(bioregion_coverage$bioregion)),
+  parents=c("",
+            "National Target","National Target",
+            rep("2025 Coverage",3),
+            bioregion_coverage$ocean),
+  values=c("",
+           sum(bioregion_coverage$area),canada_target-sum(bioregion_coverage$area),
+           ocean_coverage$coverage,
+           bioregion_coverage$area),
+  type="sunburst",
+  branchvalues="total"
+)
+
+
+plot_ly(
+  labels=c("National Target",
+           
+           "Pacific","Arctic","Atlantic",
+           as.character(bioregion_coverage$bioregion)),
+  parents=c("",
+            
+            rep("2025 Coverage",3),
+            bioregion_coverage$ocean),
+  values=c("",
+           
+           ocean_coverage$coverage,
+           bioregion_coverage$area),
+  type="sunburst",
+  branchvalues="total"
+)
+
+
+
+
+
+##map of Canadian MPAs  --------------
+#Scotian Shelf Bioregion map
+ss_bound <- bioregion_df%>%
+  filter(region == "Scotian Shelf")%>%
+  st_transform(CanProj)%>%
+  st_buffer(100*1000)%>%
+  st_bbox()
+
+#bounding boxes for ocean plots
+atlantic_box <- oceans%>%
+  filter(ocean=="Atlantic")%>%
+  st_transform(CanProj)%>%
+  st_buffer(50*1000)%>%
+  st_bbox()
+
+pacific_box <- oceans%>%
+  filter(ocean=="Pacific")%>%
+  st_transform(CanProj)%>%
+  st_buffer(50*1000)%>%
+  st_bbox()
+
+arctic_box <- oceans%>%
+  filter(ocean=="Arctic")%>%
+  st_transform(CanProj)%>%
+  st_buffer(20*1000)%>%
+  st_bbox()
+
+  p1 <- ggplot()+
+        geom_sf(data=bioregion_df,fill=NA)+
+        geom_sf(data=basemap)+
+        geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+        geom_sf(data=canada_eez,fill=NA)+
+        geom_sf(data=cpcad_marine,aes(fill=type))+
+        geom_sf(data=ss_bound%>%st_as_sfc(),fill=NA,linewidth=0.5,linetype=2)+
+        theme_bw()+
+        scale_fill_manual(values = colour_pal_types)+
+        coord_sf(xlim=plot_region[c(1,3)],ylim=plot_region[c(2,4)],expand=0)+
+        labs(fill="Closure type")
+  
+
+  p2_ss <- ggplot()+
+        geom_sf(data=bioregion_df,fill=NA)+
+        geom_sf(data=basemap)+
+        geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+        geom_sf(data=canada_eez,fill=NA)+
+        geom_sf(data=cpcad_marine,aes(fill=type))+
+        geom_sf(data=mar_network%>%
+                     filter(Classification_E == "Areas of Interest (AOI)")%>%
+                     mutate(type="MPA"),aes(fill=type),alpha=0.6,linetype=2,linewidth=1.2)+
+        geom_sf(data=mar_network%>%
+                  filter(!Classification_E %in% c("Existing site","Areas of Interest (AOI)")),
+                col="grey50",fill="white")+
+        theme_bw()+
+        scale_fill_manual(values = colour_pal_types)+
+        coord_sf(xlim=ss_bound[c(1,3)],ylim=ss_bound[c(2,4)],expand=0)+
+        labs(fill="Closure type")+
+        theme(legend.position = "none")+
+        annotation_scale()
+  
+  p_atlantic <- ggplot()+
+                geom_sf(data=bioregion_df,fill=NA)+
+                geom_sf(data=basemap)+
+                geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+                geom_sf(data=canada_eez,fill=NA)+
+                geom_sf(data=cpcad_marine%>%filter(ocean=="Atlantic"),aes(fill=type))+
+                theme_bw()+
+                scale_fill_manual(values = colour_pal_types)+
+                coord_sf(xlim=atlantic_box[c(1,3)],ylim=atlantic_box[c(2,4)],expand=0)+
+                theme(legend.position = "none")+
+                annotation_scale()
+  
+  p_arctic <- ggplot()+
+              geom_sf(data=bioregion_df,fill=NA)+
+              geom_sf(data=basemap)+
+              geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+              geom_sf(data=canada_eez,fill=NA)+
+              geom_sf(data=cpcad_marine%>%filter(ocean=="Arctic"),aes(fill=type))+
+              theme_bw()+
+              scale_fill_manual(values = colour_pal_types)+
+              coord_sf(xlim=arctic_box[c(1,3)],ylim=arctic_box[c(2,4)],expand=0)+
+              theme(legend.position = "none")+
+              annotation_scale()
+  
+  p_pacific <- ggplot()+
+                geom_sf(data=bioregion_df,fill=NA)+
+                geom_sf(data=basemap)+
+                geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+                geom_sf(data=canada_eez,fill=NA)+
+                geom_sf(data=cpcad_marine%>%filter(ocean=="Pacific"),aes(fill=type))+
+                theme_bw()+
+                scale_fill_manual(values = colour_pal_types)+
+                coord_sf(xlim=pacific_box[c(1,3)],ylim=pacific_box[c(2,4)],expand=0)+
+                annotation_scale()
+  
+  p_canada <- ggplot()+
+              geom_sf(data=bioregion_df,aes(fill=region))+
+              geom_sf(data=basemap)+
+              geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+              geom_sf(data=canada_eez,fill=NA)+
+              geom_sf(data=cpcad_marine,fill=NA,col="black")+
+              theme_bw()+
+              scale_fill_manual(values=colour_pal_bioregion)+
+              coord_sf(xlim=plot_region[c(1,3)],ylim=plot_region[c(2,4)],expand=0)+
+              labs(fill="")+
+              theme(legend.title = element_blank())
+  
+  #grab a legend for the closure types
+  legend_p_mpas <- cowplot::get_legend(p_pacific + 
+                                          theme(legend.position = "right",
+                                          legend.title = element_blank()))
+  
+  p_pacific <- p_pacific + theme(legend.position = "none")
+                                
+  p_legend <- ggplot() +
+    annotation_custom(grob = legend_p_mpas) +
+    theme_void()
+  # 
+  # combo_plot <- (p_canada)/(p_arctic + p_pacific + p_atlantic) #doesn't render right 
+  # ggsave("output/combo_map.png",combo_plot,width=10,height=10,units="in",dpi=300)
+  
+  combo_regions <- p_pacific + p_arctic +  p_atlantic
+  ggsave("output/combo_regions.png",combo_regions,width=10,height=5,units="in",dpi=300)
+  ggsave("output/canada_mcn.png",p_canada,width=10,height=5,units="in",dpi=300)
+  ggsave("output/mcn_lengend.png",p_legend,width=2,height=2,units="in",dpi=300)
+  
+
+  
+p2 <- ggplot()+
+  geom_sf(data=basemap)+
+  geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+  geom_sf(data=eez,fill=NA)+
+  geom_sf(data=CCA_simple,fill="grey90")+
+  geom_sf(data=CCA_simple%>%filter(type!="Marine Protected Area"),fill="blue")+
+  theme_bw()+
+  coord_sf(xlim=plot_region[c(1,3)],ylim=plot_region[c(2,4)])+
+  labs(title = "Canadian Federal OECMs")
+
+p3 <- p1 + p2 + plot_layout(ncol=2)
 
 #Canada coastal - will define coastal 
   #https://www150.statcan.gc.ca/n1/pub/38-20-0001/2021001/m01-eng.htm - 'coastal' is 50m or shallower
@@ -97,6 +714,36 @@ bioregion_df <- bioregion_extract%>%
                 mutate(ocean=factor(ocean,levels=c("Atlantic","Arctic","Pacific")),
                        vuln_cat= factor(vuln_cat,levels=c("Negligible","Moderate","High")),
                        depth_cat = factor(depth_cat,levels=rev(c("Coastal","Shelf","Deep"))))
+
+can_net_df <- can_mcn_extracts%>%
+              data.frame()%>%
+              mutate(bathy_old=bathy,
+                     bathy=bathy_vals$gebco_2019_Canada)%>% #this lines up with the code from 02_bathymetry_extraction.R
+              filter(!is.na(vuln))
+
+can_net_summary <- can_net_df%>%
+                   group_by(region)%>%
+                   summarize(n_points = n(),
+                          
+                          mean_vuln = mean(vuln,na.rm=T),
+                          sd_vuln = sd(vuln, na.rm = TRUE),
+                          se_vuln = sd_vuln / sqrt(n_points),
+                          
+                          mean_depth = mean(bathy,na.rm=T),
+                          sd_depth = sd(bathy,na.rm=T),
+                          se_depth = sd_depth/sqrt(n_points))%>%
+                   ungroup()%>%
+                   data.frame()%>%
+                   left_join(bioregion_abbrev)%>%
+                   mutate(ab_region =factor(ab_region,levels=bioregion_abbrev$ab_region))
+
+ggplot(can_net_summary,aes(x=mean_depth,y=mean_vuln))+
+  geom_errorbar(aes(ymin=mean_vuln - (1.96*se_vuln),
+                    ymax=mean_vuln + (1.96*se_vuln)),width=0.2)+
+  geom_errorbarh(aes(xmin=mean_depth - (1.96*se_depth),
+                     xmax=mean_depth + (1.96*se_depth)),height=0.001)+
+  geom_point()+
+  theme_bw()
 
 ### TILE PLOT ---------------------------
 
@@ -236,11 +883,6 @@ combo_plot2 <- wrap_elements(panel = combo_plot ) +
   )
 
 ggsave("output/bioregion_vulnerability.png",combo_plot2,width=10,height=6,units="in",dpi=300)
-
-
-
-
-
 
 
 ### Depth Zone plot -------------------
