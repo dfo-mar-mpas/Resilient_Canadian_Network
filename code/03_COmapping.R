@@ -6,8 +6,8 @@ library(tidyverse)
 library(MarConsNetData)
 library(DT)
 library(sf)
-
-CanProj <- "+proj=lcc +lat_1=49 +lat_2=77 +lat_0=63.390675 +lon_0=-91.86666666666666 +x_0=6200000 +y_0=3000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+library(readr)
+library(tidytext)
 
 #load the cleaned cpcad_marine dataset so that we can add bioregion to each MPA/MR
 cpcad_marine <- read_sf("data/cpcad_complete.shp")%>%
@@ -16,7 +16,7 @@ cpcad_marine <- read_sf("data/cpcad_complete.shp")%>%
 ## functions for 
 source("code/00_functions.R") # this has the text extraction functions needed to parse out the COs. 
 
-#Marine Refuge COs -----
+### Extract the COs for Marine Refuges ------
 
 #URL for the Marine Refuge Website
 url <- "https://www.dfo-mpo.gc.ca/oceans/oecm-amcepz/refuges/index-eng.html"
@@ -58,7 +58,8 @@ refuge_df <- cleaned_table%>%
                                           TRUE ~ bioregion),
                     bioregion = ifelse(bioregion == "Estuary and Gulf of St. Lawrence","Gulf of Saint Lawrence",bioregion))
             
-              
+       
+### Extract the COs for MPAs ------       
 #MPA Conservation Objectives - web scraping functions pulled from MarConsNetData and the MPA webpage. NOte that these functions
 #are based on the structure of those webpages (i.e., breaks, headings) as of July 2025
 
@@ -127,7 +128,7 @@ mpa_df <- mpa_text %>%
   data.frame()
 
 
-#National Marine Conservation Areas 
+### Extract the COs National Marine Conservation Areas  -------
 #https://parks.canada.ca/amnc-nmca/gestion-management/politique-policy-2022#section_3
 
 #The overarching objective is "protecting and conserving representative marine areas for the benefit, education and enjoyment of the people of Canada and the world"
@@ -154,7 +155,7 @@ NMCA_df <- read.csv("data/NMCA_objectives.csv")%>%
             rename(conservation_objectives = CO,
                    ocean=Ocean)
 
-#Make the combined table
+### Compile the Conservation Objective grouped dataset -----
 cols <- c("type","mechanism","ocean","bioregion","site","conservation_objectives","prohibitions")
 
 canada_mcn_df <- rbind(mpa_df%>%dplyr::select(all_of(cols)),
@@ -178,3 +179,87 @@ write.csv(canada_mcn_df,"data/canada_mcn_objectives.csv",row.names = FALSE)
 #   )
 # )
 # dt
+
+
+
+### classification of the objectives --------------
+
+canada_mcn_df <- read.csv("data/canada_mcn_objectives.csv")%>% #compilation above. 
+                 filter(!conservation_objectives %in% c("Promotion of public awareness, education, and support of the Gilbert Bay MPA", #these are named MPA objectives best measured by non-ecological data. 
+                                                        "Facilitation of scientific research opportunities in the Gilbert Bay ecosystem",
+                                                        "Implement environmental monitoring mechanisms so as to learn more about and measure the evolution of the ecosystems in the Marine Park and the effectiveness of the management terms."
+                                                        ))
+objectives <- canada_mcn_df$conservation_objectives
+
+objectives_df <- tibble(id = 1:length(objectives), text = objectives)
+clean_obj <- objectives_df |>
+  unnest_tokens(word, text) |>
+  filter(!word %in% stop_words$word)
+
+#Classify based on climate change centric words
+robust_terms <- c("resilience", "adapt", "ecosystem function", "diversity", "sustainable use", "integrity", 
+                  "conserve", "dynamic", "process", "ecological role",
+                  "habitats","benthic habitat","sponge",'coral',"species","biodiversity", "sustainable",
+                  "representative","distrubance","minimize impacts","productivity","benthic"
+                  )
+
+vulnerable_terms <- c("restore", "previous", "historic", "current", "specific", 
+                      "maintain", "recovery", "restoration", "preserve", "structure",
+                      "conservation","integrity")
+
+species_names <- c("American lobster", "Atlantic salmon", "Beluga whale", "Wolffish", "Northern Wolffish","Leatherback sea turtle", "Porbeagle shark", 
+                   "Irish moss", "Chondrus crispus","Ringed seal", "Bearded seal", "Arctic char", "Atlantic herring", "Winter flounder",
+                    "Witch flounder", "Yellowtail flounder", "American plaice", "Vazella pourtalesi",
+                    "Lophelia pertusa", "Black dogfish", "Smooth skate", "Gilbert Bay cod", "Atlantic cod",
+                    "Haddock","lobster","sea pens")
+
+#function to do a semi-quantitative analysis of the COs
+score_objective <- function(text) {
+  # First check for named species
+  if (any(sapply(species_names, function(species) str_detect(tolower(text), tolower(species))))) {
+    return("Vulnerable")
+  }
+  
+  n_vulnerable <- sum(sapply(vulnerable_terms, function(term) str_detect(tolower(text), tolower(term))))
+  
+  n_robust <- sum(sapply(robust_terms, function(term) str_detect(tolower(text), tolower(term))))
+  
+  if (n_robust > n_vulnerable) return("Robust")
+  if (n_vulnerable > n_robust) return("Vulnerable")
+  return("Unclear")
+}
+
+canada_mcn_df$climate_robustness <- sapply(canada_mcn_df$conservation_objectives, score_objective)
+
+#manual check here - these don't fit obvious groupings using the key word classification
+
+canada_mcn_df%>%filter(climate_robustness == "Unclear")%>%pull(conservation_objectives)
+
+canada_mcn_df <- canada_mcn_df%>%
+                 mutate(climate_robustness = case_when(conservation_objectives == "Maintain the overall ecological integrity of the Basin Head lagoon and inner channel. This includes avoidance of excessive <em>Ulva</em> growth, maintenance of adequate oxygen levels, and maintenance of the diversity of indigenous flora and fauna." ~ "Vulnerable",
+                                                       conservation_objectives == "Ensure the conservation and protection of threatened or endangered species" ~ "Robust",
+                                                       TRUE ~ climate_robustness))
+
+#now do a singular classification of the site level objective vulnerability
+mcn_site_vulnerability <- canada_mcn_df%>%
+                          group_by(site)%>%
+                          summarise(n_obj = n(),
+                                      n_vul = sum(climate_robustness=="Vulnerable"),
+                                      n_rob = sum(climate_robustness=="Robust"),
+                                      categorization = case_when(n_vul == n_obj ~ "high",
+                                                                 n_rob>0 & n_rob<n_obj ~ "medium",
+                                                                 n_rob == n_obj ~ "low"))%>%
+                          ungroup()%>%
+                          mutate(categorization = factor(categorization, levels=c("high","medium","low")))
+
+#plot up the results
+plot_df <- canada_mcn_df%>%
+           distinct(site,.keep_all = TRUE)%>%
+           dplyr::select(-conservation_objectives,-prohibitions)%>%
+           left_join(.,mcn_site_vulnerability)%>%
+           left_join(.,cpcad_marine%>%
+                       rename(site=NAME_E)%>%
+                       dplyr::select(site,area))
+          
+
+
