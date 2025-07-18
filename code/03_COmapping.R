@@ -126,10 +126,40 @@ mpa_df <- mpa_text %>%
   left_join(.,cpc_mpas)%>%
   data.frame()
 
+
+#National Marine Conservation Areas 
+#https://parks.canada.ca/amnc-nmca/gestion-management/politique-policy-2022#section_3
+
+#The overarching objective is "protecting and conserving representative marine areas for the benefit, education and enjoyment of the people of Canada and the world"
+
+#Site objectives derived from managmement plans 
+    #Saguenay-St. Lawrence Marine Park
+      #https://parks.canada.ca/amnc-nmca/qc/saguenay/info/plan/gestion-management
+    #Gwaii Haanas National Marine Conservation Area Reserve & Haida Heritage Site
+      #https://parks.canada.ca/pn-np/bc/gwaiihaanas/info/plan/gestion-management-2018#section6-0
+    #Tallurutiup Imanga National Marine Conservation Area - intierim as of this assembly
+    #https://parks.canada.ca/amnc-nmca/cnamnc-cnnmca/tallurutiup-imanga/ebauche-draft
+
+#manually assembled the COs from the management plans and curated into those with some ecological basis (i.e., those that could be measured via an ecological-based indicator) 
+#and those with a 'social' basis in that they are associated primarily with the site, cultural/geographic context  and management of the site. 
+
+NMCA_df <- read.csv("data/NMCA_objectives.csv")%>%
+           filter(co_type=="Ecological")%>% #see notes above for how this was deteremined
+           mutate(bioregion=case_when(site=="Tallurutiup Imanga National Marine Conservation Area" ~ "Eastern Arctic",
+                                      site=="Saguenay-St. Lawrence Marine Park" ~ "Gulf of Saint Lawrence",
+                                      site=="Gwaii Haanas National Marine Conservation Area Reserve & Haida Heritage Site" ~ "Northern Shelf"),
+                  mechanism = "Canada National Marine Conservation Areas Act",
+                type = "National Marine Conservation Area",
+                prohibitions = NA)%>%
+            rename(conservation_objectives = CO,
+                   ocean=Ocean)
+
 #Make the combined table
 cols <- c("type","mechanism","ocean","bioregion","site","conservation_objectives","prohibitions")
 
-canada_mcn_df <- rbind(mpa_df%>%dplyr::select(all_of(cols)),refuge_df%>%dplyr::select(all_of(cols)))%>%
+canada_mcn_df <- rbind(mpa_df%>%dplyr::select(all_of(cols)),
+                       refuge_df%>%dplyr::select(all_of(cols)),
+                       NMCA_df%>%dplyr::select(all_of(cols)))%>%
                  mutate(ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")))%>%
                  arrange(ocean,bioregion,type,site)
 
