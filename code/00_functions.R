@@ -210,3 +210,49 @@ create_all_region_radar_plots_enhanced <- function(summary_df,
     message(paste("Plot saved to", file_name))
   }
 }
+
+#functions for pulling out text from the webpage MPA extractions
+extract_conservation_objectives <- function(x){
+  return(x%>%
+           gsub("</p>","",.)%>%
+           gsub("<p>-","-LL",.)%>%
+           str_split(.,"-LL")%>%
+           unlist(.)%>%
+           as.vector()%>%
+           data.frame(conservation_objectives=.)%>%
+           filter(conservation_objectives != "")%>%
+           mutate(conservation_objectives = trimws(conservation_objectives))%>%
+           pull(conservation_objectives))
+}
+
+extract_regulations <- function(text) {
+  # Multiple regex patterns to catch different regulation formats
+  patterns <- c(
+    # Pattern 1: Regulations prohibit...
+    "(?<=Regulations)\\s*prohibit.*?(?=\\.)",
+    
+    # Pattern 2: MPA Regulations prohibit...
+    "(?<=MPA Regulations)\\s*prohibit.*?(?=\\.)",
+    
+    # Pattern 3: More general pattern
+    "prohibit activities.*?(?=\\.)",
+    
+    # Pattern 4: Catch-all with less specific matching
+    "prohibit.*?(?=\\.)"
+  )
+  
+  # Try each pattern
+  for(pattern in patterns) {
+    reg_text <- str_extract(text, pattern)
+    
+    # If a match is found, clean and return
+    if(!is.na(reg_text) && reg_text != "") {
+      return(str_trim(reg_text) %>% 
+               # Capitalize first letter
+               str_to_sentence())
+    }
+  }
+  
+  # If no pattern matches
+  return(NA_character_)
+}
