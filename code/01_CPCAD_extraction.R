@@ -170,9 +170,9 @@ nsb_polygons <- st_cast(nsb_network, "MULTIPOLYGON") |>
   st_make_valid() |>
   st_transform(4326)
 
-leaflet(nsb_polygons) |>
-  addTiles() |>
-  addPolygons(popup = ~as.character(Map_Label))
+# leaflet(nsb_polygons) |>
+#   addTiles() |>
+#   addPolygons(popup = ~as.character(Map_Label))
 
 #key out the missing ones
 banks_refuge <- nsb_network%>%
@@ -217,7 +217,6 @@ xaanakaahlii <- nsb_network%>%
   rename(geometry=x)%>%
   dplyr::select(NAME_E,type,ocean,bioregion,area)
 
-
 #laod the cpcad and assign an ocean region to each site
 cpcad_marine <- read_sf("data/cpcad/cpcad_areas_marine_nozones.shp")%>%
   mutate(type = case_when(TYPE_E == "Marine Protected Area By Ministerial Order" ~ "MPA",
@@ -226,6 +225,9 @@ cpcad_marine <- read_sf("data/cpcad/cpcad_areas_marine_nozones.shp")%>%
                           TRUE ~ "OECM"),
          type = factor(type,levels=c("MPA","Marine Refuge","OECM")))%>%
   st_transform(CanProj)
+
+bioregion_df <- read_sf("data/shapefiles/canadian_planning_regions.shp")%>%
+                st_transform(CanProj)
 
 #assign them to an bioregion then associate with an ocean  ----
 cpcad_marine2 <- cpcad_marine %>%
@@ -275,6 +277,7 @@ cpcad_marine2 <- cpcad_marine2%>%
 cpcad_marine_complete <- cpcad_marine2%>%
                          dplyr::select(NAME_E,type,ocean,bioregion,area)%>%
                          rbind(.,banks_refuge,xaanakaahlii,gaw_kaahlii)%>%
-                         st_as_sf()
+                         st_as_sf()%>%
+                        st_transform(CanProj)
 
-st_write(cpcad_marine_complete,dsn="data/cpcad/cpcad_complete.shp",append=TRUE)
+st_write(cpcad_marine_complete,dsn="data/cpcad_complete.shp",append=TRUE) #note the data/cpcad/cpcad_complete. wont' let me write to it. 
