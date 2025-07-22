@@ -39,8 +39,7 @@ bioregion_abbrev <- read.csv("data/region_abbreviations.csv")%>%
 #load bioregions                  
 bioregion_df <- read_sf("data/shapefiles/canadian_planning_regions.shp")%>% #these are the output from 01_cpcad_extraction
                 st_transform(CanProj)%>%
-              
-                  mutate(region=factor(region,levels=bioregion_ord))%>%
+                mutate(region=factor(region,levels=bioregion_ord))
           
 
 ocean_df <- bioregion_df%>%
@@ -52,8 +51,8 @@ ocean_df <- bioregion_df%>%
 
 #load the cpcad_marine datafile from the 01_CPCAD_extraction code
 cpcad_marine <- read_sf("data/cpcad/cpcad_complete.shp")%>%
-                st_transform(CanProj)%>%
-                st_make_valid()
+              st_set_crs(CanProj)%>%
+              st_make_valid()
 
 #colour palatte for plotting
 colour_pal_types <- c("MPA" = "#252A6B", #ocean'ee themed colours

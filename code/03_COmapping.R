@@ -164,6 +164,15 @@ canada_mcn_df <- rbind(mpa_df%>%dplyr::select(all_of(cols)),
                  mutate(ocean=factor(ocean,levels=c("Pacific","Arctic","Atlantic")))%>%
                  arrange(ocean,bioregion,type,site)
 
+#Eastern Canyons has a singe line objective with two distinct components. To be fair this will be split
+canada_mcn_df[canada_mcn_df$site == "Eastern Canyons Conservation Area","conservation_objectives"] <- "to protect cold-water corals"
+
+ec2 <- canada_mcn_df[canada_mcn_df$site == "Eastern Canyons Conservation Area",]
+ec2$conservation_objectives <- "to protect Lophelia pertusa coral reef"
+
+canada_mcn_df <- rbind(canada_mcn_df,ec2)%>%
+  arrange(ocean,bioregion,type,site)
+
 write.csv(canada_mcn_df,"data/canada_mcn_objectives.csv",row.names = FALSE)
 
 
@@ -240,6 +249,14 @@ canada_mcn_df <- canada_mcn_df%>%
                                                        conservation_objectives == "Ensure the conservation and protection of threatened or endangered species" ~ "Robust",
                                                        TRUE ~ climate_robustness))
 
+#output table
+table_out <- canada_mcn_df%>%
+             arrange(ocean,bioregion,type,site,climate_robustness)%>%
+             dplyr::select(ocean,bioregion,type,site,conservation_objectives,climate_robustness)%>%
+             rename(CO = conservation_objectives, categorization = climate_robustness)
+
+write.csv(table_out,"output/CO_categorization.csv",row.names=FALSE)
+
 #now do a singular classification of the site level objective vulnerability
 mcn_site_vulnerability <- canada_mcn_df%>%
                           group_by(site)%>%
@@ -250,16 +267,114 @@ mcn_site_vulnerability <- canada_mcn_df%>%
                                                                  n_rob>0 & n_rob<n_obj ~ "medium",
                                                                  n_rob == n_obj ~ "low"))%>%
                           ungroup()%>%
-                          mutate(categorization = factor(categorization, levels=c("high","medium","low")))
+                          mutate(categorization = factor(categorization, levels=c("high","medium","low")))%>%
+                          left_join(.,canada_mcn_df%>%distinct(site,.keep_all=TRUE)%>%dplyr::select(ocean,bioregion,type,site))%>%
+                          mutate(new_site=tolower(site))%>%
+                          left_join(.,cpcad_marine%>%mutate(new_site=tolower(NAME_E))%>%dplyr::select(new_site,area))%>%
+                          dplyr::select(-new_site)
 
-#plot up the results
+#match up the areas
+mismatched_sites <- setdiff(tolower(mcn_site_vulnerability$site),tolower(cpcad_marine$NAME_E))
+
+fix_df <- data.frame(missed=mismatched_sites,name=c("Bay of Islands Salmon Migration Closure",
+                                                     "Eastport ? Duck Island Marine Protected Area", #only 1 of 2 parts to Eastport so need to add 0.33 to that size. Also the name is messed up in the cpcad when loaded to R
+                                                     "Emerald Basin Sponge Conservation Area",
+                                                     "Gwa?xdlala/Nala?xdlala (Lull/Hoeya) marine refuge",
+                                                     "Gaw Kaahlii Marine Refuge",
+                                                     "Lobster Area Closure (Penguin Islands)", #in CPCAD this is all split up into indivdiual sites so the area will have to be aggregated for the dataframe
+                                                     "Magdalen Islands Lagoons Closures (6 Overlapping Closures)",
+                                                     "SG?a?an K?i?nghlas-Bowie Marine Protected Area",
+                                                     "Scallop Buffer Zone (SFA 21)", #three parts it the CPCAD that will need to be aggregated. 
+                                                     "Strait of Georgia and Howe Sound Glass Sponge Reef Closure (East Defence Islands)", #multiple parts will need to be aggregated
+                                                     "ThT Marine Protected Area",
+                                                     "Xaana Kaahlii Marine Refuge"))%>%
+          mutate(fix=tolower(name))
+
+mcn_site_vulnerability[tolower(mcn_site_vulnerability$site) %in% mismatched_sites,"site"] <- fix_df$name
+
+#rematch to cpcad
+mcn_site_vulnerability <- mcn_site_vulnerability%>%
+                          dplyr::select(-area)%>%
+                          mutate(new_site=tolower(site))%>%
+                          left_join(.,cpcad_marine%>%mutate(new_site=tolower(NAME_E))%>%dplyr::select(new_site,area))%>%
+                          dplyr::select(-new_site)
+
+#fix the grouped issues with cpc vs the site profiles
+
+#Eastport MPA - two parts
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Eastport ? Duck Island Marine Protected Area","area"] <- 
+  cpcad_marine%>%filter(grepl("eastport",tolower(NAME_E)))%>%pull(area)%>%sum()
+
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Eastport ? Duck Island Marine Protected Area","site"] <- 
+  "Eastport Marine Protected Area"
+
+#Lobster Area Closures 7 parts
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Lobster Area Closure (Penguin Islands)","area"] <- 
+cpcad_marine%>%filter(grepl("Lobster Area Closure",(NAME_E)))%>%pull(area)%>%sum()
+
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Lobster Area Closure (Penguin Islands)","site"] <- 
+  "Lobster Area closures (Trout River, Shoal Point, Penguin Islands, Gooseberry Island, Glovers Harbour, Mouse Island and Gander Bay)"
+
+#Scallop buffer zones - 3 parts
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Scallop Buffer Zone (SFA 21)","area"] <- 
+cpcad_marine%>%filter(grepl("Scallop Buffer Zone",(NAME_E)))%>%pull(area)%>%sum()
+
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Scallop Buffer Zone (SFA 21)","site"] <- 
+"Scallop Buffer Zones (SFA 21, 22, 24)"
+
+#Glass Sponge Reef Closures (17 parts in CPCAD)
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Strait of Georgia and Howe Sound Glass Sponge Reef Closure (East Defence Islands)","area"] <- 
+cpcad_marine%>%filter(grepl("Glass Sponge Reef Closure",(NAME_E)))%>%pull(area)%>%sum()
+
+mcn_site_vulnerability[mcn_site_vulnerability$site == "Strait of Georgia and Howe Sound Glass Sponge Reef Closure (East Defence Islands)","site"] <-
+"Strait of Georgia and Howe Sound Glass Sponge Reef (17 fisheries area closures)"
+
+#save outputs for quicker loading
+write.csv(mcn_site_vulnerability,"output/CO_site_categorization.csv",row.names = FALSE)
+
+#summarize the results
+mcn_site_vulnerability%>%
+  group_by(categorization)%>%
+  summarise(area=sum(area))%>%
+  ungroup()%>%
+  mutate(prop_area = area/sum(area))
+
+#
 plot_df <- canada_mcn_df%>%
            distinct(site,.keep_all = TRUE)%>%
            dplyr::select(-conservation_objectives,-prohibitions)%>%
            left_join(.,mcn_site_vulnerability)%>%
            left_join(.,cpcad_marine%>%
                        rename(site=NAME_E)%>%
-                       dplyr::select(site,area))
+                       dplyr::select(site,area)) #get the sites to match up to area so you can do an area -weighted proportion. 
           
 
+library(ggplot2)
+library(dplyr)
 
+# Calculate proportions
+plot_data <- plot_df %>%
+  group_by(ocean, climate_robustness) %>%
+  summarise(count = n()) %>%
+  group_by(ocean) %>%
+  mutate(prop = count / sum(count),
+         # Calculate y position for labels
+         ypos = cumsum(prop) - prop/2)
+
+# Create the plot
+ggplot(plot_data, aes(x = ocean, y = prop, fill = climate_robustness)) +
+  geom_bar(stat = "identity", position = "fill",col="black") +
+  geom_text(
+    aes(y = ypos, label = count), 
+    color = "white",
+    fontface = "bold"
+  ) +
+  labs(
+    x = "Type",
+    y = "Proportion",
+    fill = "Climate Robustness",
+    title = "Proportion of Climate Robustness by Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent)
