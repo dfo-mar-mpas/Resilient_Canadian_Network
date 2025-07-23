@@ -11,6 +11,7 @@ library(MarConsNetData) # https://github.com/dfo-mar-mpas/MarConsNetData/
 library(arcpullr)
 library(ggspatial)
 library(cowplot)
+library(terra)
 
 #map projections
 latlong <- "+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
@@ -50,15 +51,17 @@ ocean_df <- bioregion_df%>%
           st_transform(CanProj)
 
 #load the cpcad_marine datafile from the 01_CPCAD_extraction code
-cpcad_marine <- read_sf("data/cpcad/cpcad_complete.shp")%>%
-              st_set_crs(CanProj)%>%
+cpcad_marine <- read_sf("data/cpcad_complete.shp")%>%
+              st_transform(CanProj)%>%
               st_make_valid()
 
 #colour palatte for plotting
 colour_pal_types <- c("MPA" = "#252A6B", #ocean'ee themed colours
                       "OECM" = "#2AA2BD",
                       "Marine Refuge" = "#84E7DA",
-                      "Gap" = "white")
+                      "Gap" = "white",
+                      "AOI" = "#005E6B",
+                      "Draft" = "grey85")
 
 colour_pal_bioregion <- c("Newfoundland-Labrador Shelves" = "#BCE4DF",
                           "Gulf of Saint Lawrence" = "#51AFA5",
@@ -118,6 +121,76 @@ plot_region <- canada_eez%>%st_bbox()
 
 canada <- basemap%>%
           filter(country=="Canada")
+
+#Maritimes Draft Conservation network
+mar_network <- data_draft_areas()%>%
+               filter(SiteName_E != "Northeast Channel Coral Marine Refuge")%>% #this is just overlapped by the Fundian
+               st_transform(CanProj)%>%
+               mutate(type=case_when(grepl("refuge",tolower(SiteName_E)) ~ "Marine Refuge",
+                                     grepl("marine protected",tolower(SiteName_E)) ~ "MPA",
+                                     TRUE ~ "Draft"),
+                      type=ifelse(type == "Draft" & Classification_E == "Existing site", "OECM",type),
+                      type=ifelse(SiteName_E %in% c("Fundian Channel-Browns Bank","Eastern Shore Islands"),"AOI",type),
+                      type=factor(type,levels=c("MPA","Marine Refuge","OECM","AOI","Draft")))
+
+
+ss_bound <- bioregion_df%>%
+  filter(region == "Scotian Shelf")%>%
+  st_transform(CanProj)%>%
+  st_buffer(100*1000)%>%
+  st_bbox()
+
+contour_region <- read_sf("data/contour_region.shp")
+
+
+#create a bathymetry layer based on gebco
+# gebco_bathy <- rast("c:/Users/stanleyr/Documents/Github/data/bathymetry/gebco_2023_n86.4537_s40.0402_w-141.003_e-47.7434.tif")
+# 
+# dem_proj <- st_crs(gebco_bathy) 
+# 
+# contour_region <- gebco_bathy%>%
+#   crop(.,ss_bound%>%
+#          st_as_sfc()%>%
+#          st_buffer(100*1000)%>% #extend out a bit. 
+#          st_bbox()%>%
+#          st_as_sfc()%>%
+#          st_transform(dem_proj))%>%
+#   as.contour(., levels = -225)%>%
+#   st_as_sf()%>%
+#   st_transform(CanProj)
+# 
+# write_sf(contour_region,dsn="data/contour_region.shp")
+
+contour_region <- read_sf("data/contour_region.shp")
+contour_bioregion <- contour_region%>%st_intersection(.,bioregion_df%>%filter(region=="Scotian Shelf"))
+
+mar_cpcad <- cpcad_marine%>%
+             filter(ocean=="Atlantic",
+                    bioregion!="Scotian Shelf",
+                    grepl("Marine Protected Area",NAME_E))
+
+
+p1 <- ggplot()+
+  geom_sf(data=contour_region,linewidth=0.25,col="grey80")+
+  geom_sf(data=contour_bioregion,linewidth=0.25,col="grey40")+
+  geom_sf(data=bioregion_df%>%filter(region=="Scotian Shelf"),fill=NA)+
+  geom_sf(data=basemap)+
+  geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
+  geom_sf(data=mar_cpcad,fill=NA)+
+  geom_sf(data=mar_network,aes(fill=type),alpha=0.75,col="black")+
+  geom_sf(data=ss_bound%>%st_as_sfc(),fill=NA,linewidth=0.5,linetype=2)+
+  theme_bw()+
+  geom_sf(data=mar_network%>%filter(SiteName_E=="Sambro Bank Sponge Marine Refuge"),fill="red")+
+  coord_sf(xlim=ss_bound[c(1,3)],ylim=ss_bound[c(2,4)],expand=0)+
+  labs(fill="")+
+  scale_fill_manual(values=colour_pal_types)+
+  annotation_scale(location="br")+
+  theme(legend.position="inside",
+        legend.position.inside = c(0.9,0.9),
+        legend.title = element_blank(),
+        legend.background = element_blank())
+
+ggsave("output/maritimes_network.png",p1,height=7,width=7,units="in",dpi=600)
 
 ##analysis of CMIP downscaling - McKee et al. 
 
