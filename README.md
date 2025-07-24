@@ -1,6 +1,8 @@
 # Resilient_Canadian_Network
 Managing for long-term resiliency for marine conservation areas in Canada
 
+Ryan R.E. Stanley, Christine H. Stortini, Grace Elliot, Nick W. Jeffery, Harri Pettitt-Wade
+
 ![](output/Figure1-01.jpg)
 
 _Figure 1_ The Canadian Marine Conservation Network, stratified by bioregion (top row) and by ocean region and conservation measure (bottom row). The top row illustrates the distribution of conservation areas within each bioregion, while the bottom row presents conservation measures organized by ocean region and management type. Polygons obtained from the Canadian Protected and Conserved Areas Database in spring 2025. 
