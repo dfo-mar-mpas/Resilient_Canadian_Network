@@ -161,13 +161,14 @@ contour_region <- read_sf("data/contour_region.shp")
 # 
 # write_sf(contour_region,dsn="data/contour_region.shp")
 
-contour_region <- read_sf("data/contour_region.shp")
-contour_bioregion <- contour_region%>%st_intersection(.,bioregion_df%>%filter(region=="Scotian Shelf"))
+contour_region <- read_sf("data/contour_region.shp")%>%st_transform(CanProj)
+contour_bioregion <- contour_region%>%st_intersection(.,bioregion_df%>%filter(region=="Scotian Shelf")%>%st_transform(CanProj))
 
 mar_cpcad <- cpcad_marine%>%
              filter(ocean=="Atlantic",
                     bioregion!="Scotian Shelf",
-                    grepl("Marine Protected Area",NAME_E))
+                    grepl("Marine Protected Area",NAME_E))%>%
+             mutate(type=="MPA")
 
 
 p1 <- ggplot()+
@@ -176,11 +177,11 @@ p1 <- ggplot()+
   geom_sf(data=bioregion_df%>%filter(region=="Scotian Shelf"),fill=NA)+
   geom_sf(data=basemap)+
   geom_sf(data=basemap%>%filter(country == "Canada"),fill="grey60")+
-  geom_sf(data=mar_cpcad,fill=NA)+
+  geom_sf(data=mar_cpcad,aes(fill=type),alpha=0.5)+
   geom_sf(data=mar_network,aes(fill=type),alpha=0.75,col="black")+
   geom_sf(data=ss_bound%>%st_as_sfc(),fill=NA,linewidth=0.5,linetype=2)+
   theme_bw()+
-  geom_sf(data=mar_network%>%filter(SiteName_E=="Sambro Bank Sponge Marine Refuge"),fill="red")+
+  #geom_sf(data=mar_network%>%filter(SiteName_E=="Sambro Bank Sponge Marine Refuge"),fill="red")+
   coord_sf(xlim=ss_bound[c(1,3)],ylim=ss_bound[c(2,4)],expand=0)+
   labs(fill="")+
   scale_fill_manual(values=colour_pal_types)+
