@@ -1,7 +1,11 @@
-# Resilient_Canadian_Network
-Managing for long-term resiliency for marine conservation areas in Canada
+# Managing for long-term resilience in the Canadian Marine Conservation NetworkManaging for long-term resiliency for marine conservation areas in Canada
 
-Ryan R.E. Stanley, Christine H. Stortini, Grace Elliot, Nick W. Jeffery, Harri Pettitt-Wade
+*Abstract*
+
+Biodiversity loss and climate change are closely linked threats to marine ecosystems, and marine conservation areas (MCAs) are widely promoted as key tools to address both. Canada has established a substantial network of MCAs, now covering over 15% of its marine estate, with a target of 30% by 2030 under the Global Biodiversity Framework. At the halfway point toward this commitment, rapid climate-driven ecological change raises questions about the long-term efficacy of static conservation strategies. This paper focuses on two challenges: (1) ensuring conservation objectives remain robust as ecosystems shift, and (2) improving adaptive management at both site and network scales to maintain ecological coherence and biodiversity. We synthesize Canada’s marine-conservation work by reviewing progress on MPA planning and management, climate-focused studies, the objectives set for protected areas, and the integration of Indigenous perspectives and knowledge. We assess how well objectives anticipate ongoing shifts and climate-change impacts, finding that about 30% of protected areas have objectives vulnerable to climate change. Addressing these challenges offers an opportunity to advance climate-smart planning and strengthen adaptive management across Canada’s growing marine-conservation network, helping to build a more resilient and adaptive system, better aligning with global conservation goals.
+
+*Keywords*: Marine Protected Areas, Climate Change, Resiliency, Adaptive Management, Conservation
+
 
 [![DOI](https://zenodo.org/badge/980081425.svg)](https://doi.org/10.5281/zenodo.17664695)
 
