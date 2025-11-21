@@ -20,7 +20,7 @@ _Figure 2_ Percent coverage of conservation measures across different management
 
 ![](output/Figure3-01.jpg)
 
-_Figure 3_ Projected changes in sea surface temperature in MPAs in the Gulf of St. Lawrence and Scotian Shelf Bioregions. Bars denote mean difference for 20 year periods relative to an average baseline value calculated using the GLORYS12 1993-2014 average. Standard deviation calculated using average of 22 CMIP6 models (McKee et al. 2025). Bars presented in groups for each time period and MPA with RCP 4.5 and 8.5 emission scenarios denoted by top and bottom bars, respectively. 
+_Figure 3_ Projected changes in sea surface temperature in MPAs in the Gulf of St. Lawrence and Scotian Shelf Bioregions. Bars denote mean difference for 20 year periods relative to an average baseline value calculated using the GLORYS12 1993-2014 average. Standard deviation calculated using average of 22 CMIP6 models [(McKee et al. 2025)](https://publications.gc.ca/collections/collection_2025/mpo-dfo/Fs97-18-406-eng.pdf). Bars presented in groups for each time period and MPA with RCP 4.5 and 8.5 emission scenarios denoted by top and bottom bars, respectively. 
 
 ![](output/Figure4-01.png)
 
